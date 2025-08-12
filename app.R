@@ -196,10 +196,6 @@ run_model_training <- function(df0,
   }
 }
 
-
-#------------------------------------------------------------------#
-# 3. UI Definition
-#------------------------------------------------------------------#
 #------------------------------------------------------------------#
 # 3. UI Definition (REVISED)
 #------------------------------------------------------------------#
@@ -309,77 +305,108 @@ server <- function(input, output, session) {
     data_store$raw_test <- read.csv(input$test_data$datapath, stringsAsFactors = FALSE)
   })
   
-  # --- Dynamic UI for Data Setup ---
+    # --- Dynamic UI for Data Setup (REVISED LOGIC) ---
   output$data_setup_ui <- renderUI({
     req(data_store$raw_train)
+    
+    # Get column names from raw data
+    cols <- names(data_store$raw_train)
+    
     tagList(
       hr(),
-      h4("Step 1: Preprocessing"),
-      selectInput("categorical_vars", "Select Categorical Variables for OHE",
-                  choices = names(data_store$raw_train),
-                  multiple = TRUE),
+      h4("Step 1: Define Variables"),
+      # UI for selecting the target variable FIRST
+      selectInput('sel_y', "Select Y (Target Variable)", choices = cols, multiple = FALSE),
+      
+      # This UI will be rendered by another function below
+      uiOutput("categorical_selector_ui"),
+      
+      hr(),
       actionButton("process_data_btn", "Process Data", class = "btn-primary"),
       hr(),
       # This UI appears after processing
-      uiOutput("variable_selection_ui")
+      uiOutput("predictor_selection_ui")
     )
   })
-  
-  # --- One-Hot Encoding and Data Processing ---
-  observeEvent(input$process_data_btn, {
-    req(data_store$raw_train, input$categorical_vars)
+
+  # --- New UI renderer for selecting categorical PREDICTORS ---
+  output$categorical_selector_ui <- renderUI({
+    req(data_store$raw_train, input$sel_y)
     
-    withProgress(message = 'Processing data...', value = 0.3, {
+    # Choices for categorical variables are all columns EXCEPT the selected Y
+    available_choices <- setdiff(names(data_store$raw_train), input$sel_y)
+    
+    selectInput("categorical_vars", "Select Categorical Predictors for OHE",
+                choices = available_choices,
+                multiple = TRUE)
+  })
+  
+    # --- One-Hot Encoding and Data Processing (REVISED LOGIC) ---
+  observeEvent(input$process_data_btn, {
+    req(data_store$raw_train, input$sel_y)
+    
+    withProgress(message = 'Processing data...', value = 0.2, {
       
-      df_train <- data_store$raw_train
+      # 1. Isolate Y variable and predictor (X) data from the raw training set
+      y_col_data <- data_store$raw_train[, input$sel_y, drop = FALSE]
+      x_data_train <- data_store$raw_train[, setdiff(names(data_store$raw_train), input$sel_y), drop = FALSE]
       
-      # Create OHE recipe
-      # Exclude variables not selected for OHE
-      formula_str <- paste("~", paste(input$categorical_vars, collapse = " + "))
-      ohe_recipe <- dummyVars(as.formula(formula_str), data = df_train, fullRank = TRUE)
-      data_store$ohe_recipe <- ohe_recipe
+      incProgress(0.2, detail = "Creating OHE recipe...")
       
-      incProgress(0.3, detail = "Applying OHE to training data...")
-      
-      # Transform training data
-      dummied_train <- as.data.frame(predict(ohe_recipe, newdata = df_train))
-      
-      # Combine with original numeric data
-      numeric_vars <- setdiff(names(df_train), input$categorical_vars)
-      data_store$processed_train <- cbind(df_train[, numeric_vars, drop = FALSE], dummied_train)
-      
-      # Process test data if it exists
-      if (!is.null(data_store$raw_test)) {
-        incProgress(0.2, detail = "Applying OHE to prediction data...")
-        df_test <- data_store$raw_test
-        dummied_test <- as.data.frame(predict(ohe_recipe, newdata = df_test))
-        numeric_vars_test <- setdiff(names(df_test), input$categorical_vars)
-        data_store$processed_test <- cbind(df_test[, numeric_vars_test, drop = FALSE], dummied_test)
+      # 2. Create OHE recipe ONLY from categorical predictors, if any are selected
+      if (!is.null(input$categorical_vars) && length(input$categorical_vars) > 0) {
+        formula_str <- paste("~", paste(input$categorical_vars, collapse = " + "))
+        ohe_recipe <- dummyVars(as.formula(formula_str), data = x_data_train, fullRank = TRUE)
+        data_store$ohe_recipe <- ohe_recipe
+        
+        # 3. Apply recipe to predictor data
+        dummied_train <- as.data.frame(predict(ohe_recipe, newdata = x_data_train))
+        
+        # 4. Identify original numeric predictors
+        numeric_vars <- setdiff(names(x_data_train), input$categorical_vars)
+        
+        # 5. Combine Y, original numeric X's, and dummied X's
+        data_store$processed_train <- cbind(y_col_data, x_data_train[, numeric_vars, drop = FALSE], dummied_train)
+        
+      } else {
+        # If no categorical variables were selected, just combine Y and X
+        data_store$processed_train <- cbind(y_col_data, x_data_train)
+        data_store$ohe_recipe <- NULL # No recipe
       }
       
-      shinyjs::alert("Data processing complete! Please select your target and predictor variables below.")
+      incProgress(0.3, detail = "Applying to prediction data...")
+      
+      # 6. Process test data if it exists
+      if (!is.null(data_store$raw_test) && !is.null(data_store$ohe_recipe)) {
+        df_test <- data_store$raw_test
+        # This will now work, as Y is not in the recipe or the test data
+        dummied_test <- as.data.frame(predict(data_store$ohe_recipe, newdata = df_test))
+        
+        numeric_vars_test <- setdiff(names(df_test), input$categorical_vars)
+        data_store$processed_test <- cbind(df_test[, numeric_vars_test, drop = FALSE], dummied_test)
+      } else if (!is.null(data_store$raw_test)) {
+        data_store$processed_test <- data_store$raw_test
+      }
+      
+      shinyjs::alert("Data processing complete! Please select your final predictor variables below.")
     })
   })
   
-  # --- Dynamic UI for Variable Selection ---
-  output$variable_selection_ui <- renderUI({
+   # --- Dynamic UI for Final Predictor (X) Selection ---
+  output$predictor_selection_ui <- renderUI({
     req(data_store$processed_train)
     
-    cols <- names(data_store$processed_train)
+    # Choices for predictors are all columns in the processed data EXCEPT the target
+    predictor_choices <- setdiff(names(data_store$processed_train), input$sel_y)
+    
     tagList(
-      h4("Step 2: Variable Selection"),
-      selectInput('sel_y', "Select Y (Target Variable)", choices = cols, multiple = FALSE),
-      uiOutput("x_ui_selector") # Dynamic selector for X
+      h4("Step 2: Final Predictor Selection"),
+      selectInput("sel_x", "Select Final X Variables for Model",
+                  choices = predictor_choices,
+                  multiple = TRUE,
+                  selected = predictor_choices)
     )
   })
-  
-  output$x_ui_selector <- renderUI({
-    req(data_store$processed_train, input$sel_y)
-    cols <- names(data_store$processed_train)
-    available_x <- setdiff(cols, input$sel_y)
-    selectInput("sel_x", "Select X (Features)", choices = available_x, multiple = TRUE, selected = available_x)
-  })
-  
   
   # --- Dynamic UI for Model Configuration ---
   output$model_config_ui <- renderUI({
