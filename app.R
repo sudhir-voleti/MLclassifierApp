@@ -260,7 +260,9 @@ ui <- fluidPage(
                hr(),
                h4("Final Model Summary"),
                helpText("Note: Training may take a few moments."),
-               verbatimTextOutput("mod_sum")
+               verbatimTextOutput("mod_sum"),
+               # --- ADD THE LINE BELOW ---
+               uiOutput("logit_details_ui") 
       ),
       tabPanel("5. Performance Plots",
                h4("ROC-AUC Curve (on Test Set)"),
@@ -562,6 +564,66 @@ server <- function(input, output, session) {
   output$mod_sum <- renderPrint({
     req(model_results_reactive())
     model_results_reactive()[[1]]
+  })
+
+    # --- NEW: UI for Logistic Regression Detailed Results ---
+  output$logit_details_ui <- renderUI({
+    # Only show this UI if the model is logistic regression AND it has been trained
+    req(input$model_sel == "lg_reg", model_results_reactive())
+    
+    tagList(
+      hr(),
+      checkboxInput("show_logit_details", "Show Logistic Regression Coefficients and Odds Ratios", value = FALSE),
+      # This panel will only appear if the checkbox is ticked
+      conditionalPanel(
+        condition = "input.show_logit_details == true",
+        h4("Coefficient Summary"),
+        verbatimTextOutput("logit_coeffs"),
+        hr(),
+        h4("Odds Ratios (with 95% Confidence Intervals)"),
+        p("Odds ratio > 1 indicates an increase in odds of the outcome. < 1 indicates a decrease."),
+        DT::dataTableOutput("logit_odds_ratios")
+      )
+    )
+  })
+
+  # --- NEW: Server logic to print the coefficient summary ---
+  output$logit_coeffs <- renderPrint({
+    req(model_results_reactive())
+    # Access the final GLM model inside the caret object
+    final_model <- model_results_reactive()[[1]]$finalModel
+    summary(final_model)
+  })
+
+  # --- NEW: Server logic to calculate and display odds ratios ---
+  output$logit_odds_ratios <- DT::renderDataTable({
+    req(model_results_reactive())
+    
+    final_model <- model_results_reactive()[[1]]$finalModel
+    
+    # Calculate odds ratios
+    odds_ratios <- exp(coef(final_model))
+    
+    # Calculate confidence intervals for the coefficients
+    conf_ints <- confint(final_model)
+    
+    # Exponentiate CIs to get them on the odds ratio scale
+    odds_ratios_ci <- exp(conf_ints)
+    
+    # Combine into a nice data frame
+    results_df <- data.frame(
+      Variable = names(odds_ratios),
+      Odds_Ratio = odds_ratios,
+      CI_Lower_2.5 = odds_ratios_ci[, 1],
+      CI_Upper_97.5 = odds_ratios_ci[, 2]
+    )
+    
+    # Round for display and present in a table
+    DT::datatable(results_df,
+                  rownames = FALSE,
+                  options = list(pageLength = 10, searching = FALSE, dom = 't'),
+                  caption = "Odds Ratios for the Positive Class") %>%
+      formatRound(columns = c('Odds_Ratio', 'CI_Lower_2.5', 'CI_Upper_97.5'), digits = 3)
   })
   
   # --- Tab 4 Outputs: Performance Plots ---
