@@ -459,6 +459,15 @@ server <- function(input, output, session) {
     })
   })
   
+    # --- NEW --- Tab for Raw Data View ---
+  output$raw_data_preview <- DT::renderDataTable({
+    req(data_store$raw_train)
+    DT::datatable(
+      head(data_store$raw_train, 10),
+      caption = "Displaying the first 10 rows of the uploaded training data.",
+      options = list(scrollX = TRUE, pageLength = 10, searching = FALSE, dom = 't') # dom = 't' shows only the table itself
+    )
+  })
   
   # --- Tab 1 Outputs: Processed Data Preview ---
   output$processed_data_preview <- DT::renderDataTable({
