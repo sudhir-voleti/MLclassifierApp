@@ -200,6 +200,9 @@ run_model_training <- function(df0,
 #------------------------------------------------------------------#
 # 3. UI Definition
 #------------------------------------------------------------------#
+#------------------------------------------------------------------#
+# 3. UI Definition (REVISED)
+#------------------------------------------------------------------#
 ui <- fluidPage(
   useShinyjs(), # Initialize shinyjs
   titlePanel(div(img(src = "logo.png", align = 'right', height = '50px'), "ML Algos for Classification")),
@@ -223,28 +226,36 @@ ui <- fluidPage(
       tabPanel("Overview",
                includeMarkdown("overview.md") # Ensure you have an overview.md file
       ),
-      tabPanel("1. Data Setup & Preprocessing",
+      # --- NEW TAB ADDED HERE ---
+      tabPanel("1. View Raw Data",
+               h4("Raw Training Data Preview (Top 10 Rows)"),
+               p("Review your uploaded data below. Based on this, go to the sidebar on the left to select your categorical (non-metric) variables under 'Step 1: Preprocessing'."),
+               hr(),
+               DT::dataTableOutput("raw_data_preview")
+      ),
+      # --- SUBSEQUENT TABS RENUMBERED ---
+      tabPanel("2. Data Setup & Preprocessing",
                h4("Instructions"),
                p("1. Upload your training data."),
-               p("2. Select variables you identify as categorical (non-metric) for one-hot encoding."),
+               p("2. In the sidebar, select variables you identify as categorical for one-hot encoding."),
                p("3. Click 'Process Data' to create dummy variables."),
-               p("4. Select the final target (Y) and predictor (X) variables for your model. The predictor list will include the newly created dummy variables."),
+               p("4. In the sidebar, select the final target (Y) and predictor (X) variables for your model."),
                p("5. (Optional) Upload a prediction dataset. It will be processed using the same rules."),
                hr(),
-               h4("Processed Data Preview"),
+               h4("Processed Data Preview (After One-Hot Encoding)"),
                DT::dataTableOutput("processed_data_preview")
       ),
-      tabPanel("2. Data Exploration",
-               h4("Structure of Processed Data"),
+      tabPanel("3. Data Exploration",
+               h4("Structure of Final Model Data"),
                verbatimTextOutput("data_str"),
                hr(),
                h4("Missingness Map (Raw Training Data)"),
                plotOutput("miss_plot"),
                hr(),
-               h4("PCA Plot (Processed Training Data)"),
+               h4("PCA Plot (Final Model Data)"),
                plotOutput("pca_plot")
       ),
-      tabPanel("3. Model Training & Results",
+      tabPanel("4. Model Training & Results",
                h4("Distribution of Target Variable (Y)"),
                verbatimTextOutput("tar_dis"),
                hr(),
@@ -255,7 +266,7 @@ ui <- fluidPage(
                helpText("Note: Training may take a few moments."),
                verbatimTextOutput("mod_sum")
       ),
-      tabPanel("4. Performance Plots",
+      tabPanel("5. Performance Plots",
                h4("ROC-AUC Curve (on Test Set)"),
                plotOutput("roc"),
                hr(),
@@ -265,7 +276,7 @@ ui <- fluidPage(
                h4("Confusion Matrix (from Cross-Validation)"),
                verbatimTextOutput('conf_train')
       ),
-      tabPanel("5. Prediction",
+      tabPanel("6. Prediction",
                helpText("Note: Predictions are run on the uploaded prediction data after applying the same transformations as the training data."),
                DT::dataTableOutput("test_op"),
                downloadButton("download_pred", "Download Predictions")
@@ -273,7 +284,6 @@ ui <- fluidPage(
     )
   )
 )
-
 
 #------------------------------------------------------------------#
 # 4. Server Logic
